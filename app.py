@@ -26,33 +26,91 @@ recent_image_data = {
 def process_image_data(data, mime_type):
     """Process binary image data and return base64 string"""
     try:
-        # Decode base64 data
-        image_data = base64.b64decode(data)
+        print(f"Processing image data - Type: {type(data)}, MIME: {mime_type}")
         
-        # Wrap in BytesIO
-        image_stream = io.BytesIO(image_data)
+        # Handle different data types
+        if isinstance(data, str):
+            # If data is already a base64 string, decode it
+            try:
+                image_data = base64.b64decode(data)
+                print("Data was base64 string, decoded successfully")
+            except Exception as e:
+                print(f"Failed to decode base64 string: {e}")
+                return None
+        elif isinstance(data, bytes):
+            # If data is already bytes, use directly
+            image_data = data
+            print("Data was bytes, using directly")
+        else:
+            # Try to convert to bytes
+            try:
+                image_data = bytes(data)
+                print("Converted data to bytes")
+            except Exception as e:
+                print(f"Failed to convert data to bytes: {e}")
+                return None
         
-        # Open with Pillow to validate and potentially convert
-        image = Image.open(image_stream)
+        print(f"Image data length: {len(image_data)} bytes")
         
-        # Convert to RGB if necessary (for PNG compatibility)
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+        # Validate that we have actual image data
+        if len(image_data) == 0:
+            print("Image data is empty")
+            return None
         
-        # Save to BytesIO as PNG
-        output_stream = io.BytesIO()
-        image.save(output_stream, format='PNG')
-        output_stream.seek(0)
+        # Check for common image headers to validate format
+        if image_data[:4] == b'\x89PNG':
+            print("Detected PNG format")
+        elif image_data[:2] == b'\xff\xd8':
+            print("Detected JPEG format")
+        elif image_data[:6] in (b'GIF87a', b'GIF89a'):
+            print("Detected GIF format")
+        elif image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
+            print("Detected WebP format")
+        else:
+            print("Unknown or corrupted image format")
+            # Log first 20 bytes for debugging
+            print(f"First 20 bytes: {image_data[:20]}")
         
-        # Convert to base64
-        base64_image = base64.b64encode(output_stream.getvalue()).decode('utf-8')
-        
-        print(f"Image processed successfully, size: {len(base64_image)} characters")
-        return base64_image
+        # Try to open with Pillow
+        try:
+            image_stream = io.BytesIO(image_data)
+            image = Image.open(image_stream)
+            print(f"Successfully opened image: {image.format}, {image.size}, {image.mode}")
+            
+            # Convert to RGB if necessary
+            if image.mode != 'RGB':
+                print(f"Converting from {image.mode} to RGB")
+                image = image.convert('RGB')
+            
+            # Save to BytesIO as PNG
+            output_stream = io.BytesIO()
+            image.save(output_stream, format='PNG')
+            output_stream.seek(0)
+            
+            # Convert to base64
+            base64_image = base64.b64encode(output_stream.getvalue()).decode('utf-8')
+            
+            print(f"Image processed successfully, base64 length: {len(base64_image)} characters")
+            return base64_image
+            
+        except Exception as e:
+            print(f"Pillow failed to process image: {e}")
+            
+            # Fallback: try to return the data as base64 if it's already valid image data
+            try:
+                base64_image = base64.b64encode(image_data).decode('utf-8')
+                print(f"Fallback: returning raw image data as base64, length: {len(base64_image)}")
+                return base64_image
+            except Exception as e2:
+                print(f"Fallback also failed: {e2}")
+                return None
         
     except Exception as e:
         print(f"Error processing image data: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+
 
 def create_style_prompt(selected_items):
     """Create a detailed prompt for image generation based on selected fashion items"""
@@ -145,6 +203,8 @@ def generate_image_with_gemini(prompt):
                 data_buffer = inline_data.data
                 mime_type = inline_data.mime_type
                 
+                print(f"Received image data from API - MIME: {mime_type}, Data type: {type(data_buffer)}")
+                
                 # Process image data directly in memory
                 base64_image = process_image_data(data_buffer, mime_type)
                 
@@ -177,6 +237,8 @@ def generate_image_with_gemini(prompt):
             
     except Exception as e:
         print(f"Error generating image with Gemini: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 @app.route('/generate-style', methods=['POST'])
